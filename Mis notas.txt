@@ -1,0 +1,16 @@
+========================================================================================
+==09/10/2026============================================================================
+==02:44 P.M.============================================================================
+1. No se pueden crear rutas con destino a edificios estando en planta 1 o 2.
+Tenemos que contemplar tambien los edificios como lugares a los que el usuario puede
+solicitar una ruta.
+
+2. Los objetos y ventanas que se muestran pueden ser algo invasivas en dispositivos moviles.
+Se necesita adaptar la interfaz actual o crear una nueva solo para dispositivos moviles.
+
+3. Las rutas trazadas solo se deben mostrar en el modo editor, ya que puede ensuciar 
+el mapa y hacerlo confuso.
+
+4. Se necesita calibrar nuevamente el gps o calcular nuevamente los edificios.
+========================================================================================
+

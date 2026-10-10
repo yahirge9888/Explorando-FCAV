@@ -1,0 +1,262 @@
+RESUMEN DEL PROYECTO - MAPA INTERACTIVO DE LA FACULTAD (FCAV - UAT)
+Actualizado: 9 de octubre de 2026
+
+
+El proyecto es un mapa web interactivo de la FCAV con tres capas (vista aérea,
+Planta 1 y Planta 2), un editor visual y GPS calibrado. Todo lo que se edita se
+publica para cualquiera que entre al sitio.
+
+
+====================================================================
+1. LO QUE YA EXISTÍA AL EMPEZAR
+====================================================================
+
+La idea original (Idea.txt): un croquis web de la facultad para ubicar
+biblioteca, cafetería y edificios. Ya había un prototipo funcionando:
+
+- Mapa en SVG con calles, estacionamientos y edificios; zoom y arrastre,
+  también con los dedos en el celular.
+- Buscador, filtros por categoría y ficha de cada lugar (horario, contenido).
+- "Cómo llegar": calcula el camino más corto por una red de calles.
+- Editor visual para dibujar edificios y pines, y calcar sobre una imagen
+  de Google Maps.
+
+Tecnología: HTML, CSS y JavaScript sin frameworks, más un servidor sencillo
+en Python (server.py).
+
+
+====================================================================
+2. LO QUE SE HIZO ANTES DE ESTAS SESIONES
+====================================================================
+
+2.1 Mapa compartido para todos
+------------------------------
+Problema: los cambios del editor solo se veían en tu equipo, por dos razones:
+  - La página guardaba en el navegador y no en el servidor.
+  - Se estaba usando "python -m http.server", que no permite guardar.
+
+Solución:
+  - Cada cambio se publica en el servidor (data/mapa.json).
+  - Los demás dispositivos lo reciben solos en unos 8 segundos.
+  - La etiqueta de arriba indica "Mapa compartido" o "Solo este dispositivo".
+  - Se corrigió un error de server.py que cortaba la conexión cuando se
+    pedía un archivo inexistente.
+
+2.2 Calibración del GPS
+-----------------------
+Problema: el punto de "Mi ubicación" no coincidía con el croquis, porque el
+mapa se colocaba con un solo punto y una escala, sin girarlo.
+
+Solución: herramienta "Calibrar GPS" en el editor.
+  - Marcas puntos en el croquis y pegas sus coordenadas de Google Maps.
+  - La página ajusta desplazamiento, escala, rotación e inclinación, y
+    muestra el error de cada punto.
+  - Avisa si los puntos están en línea, muy juntos o si invertiste
+    latitud y longitud.
+  - Tu calibración: 4 puntos, error aproximado de 0.4 m, publicada en
+    data/calibracion.json para todos.
+  - Si una calibración no se puede publicar, queda pendiente y se sube sola
+    cuando aparece el servidor.
+
+2.3 Por qué la ubicación seguía saliendo lejos
+----------------------------------------------
+No era la calibración. Las laptops no tienen GPS: calculan su posición por
+Wi-Fi, con errores de decenas de metros.
+  - La página ahora avisa cuando la ubicación es poco precisa.
+  - Para usar el GPS real del celular hace falta https, así que se instaló
+    Cloudflare Tunnel (cloudflared), que da un link https temporal hacia tu PC.
+
+2.4 Plantas
+-----------
+Selector "Vista aérea | Planta 1 | Planta 2".
+  - En cada planta el exterior se atenúa, los edificios quedan como contornos
+    y encima se ven aulas, pasillos y escaleras.
+  - El buscador encuentra lugares de cualquier planta y cambia de capa solo.
+  - La ficha dice en qué planta y edificio está cada aula.
+  - En el editor, lo que dibujes se crea en la planta activa, y cada lugar
+    se puede mover de planta.
+  - Categorías nuevas: Aulas y salones, Escaleras y Pasillos (los pasillos
+    no aparecen en la lista ni en el buscador).
+  - Lo que ya estaba dibujado quedó en "Vista aérea", sin perder nada.
+
+
+====================================================================
+3. LO QUE SE HIZO EN ESTA CONTINUACIÓN
+====================================================================
+
+Salió de ObjetiosParaEditor.txt. Se hicieron las seis fases. Girar el mapa
+con el giroscopio, que estaba pendiente, ya está hecho (ver 3.10).
+
+3.1 Muros
+---------
+Herramienta "Muro" (tecla M). Es una línea abierta que solo separa espacios.
+No sale en la lista ni en el buscador. La zona caminable no lo atraviesa.
+Una línea de ruta sí pasa por donde la dibujes, aunque cruce un muro.
+
+3.2 Puertas
+-----------
+Herramienta "Puerta" (tecla U). El clic se pega al borde de un aula, oficina,
+laboratorio o baño y marca la entrada de ese lugar. Se ve el arco de la
+puerta, hacia adentro. Mover el lugar mueve su puerta.
+La ruta de afuera sigue terminando en la puerta del edificio. La puerta del
+lugar es el destino marcado adentro.
+
+3.3 Escaleras
+-------------
+Herramienta "Escalera" (tecla E). Una escalera vive en Planta 1 y Planta 2
+a la vez. Arrastrarla en una planta no mueve la otra. El botón "Igualar la
+otra planta" copia la posición. No se puede poner en la vista aérea.
+En el buscador dice "Planta 1 · Planta 2". La ficha dice que conecta las
+dos plantas. Si en cada planta queda cerca de una línea de ruta, «Cómo
+llegar» usa esa escalera para pasar de una planta a la otra.
+
+3.4 Líneas de ruta
+------------------
+Herramienta "Ruta" (tecla R). Es el camino por donde se camina, afuera o
+dentro de una planta. No sale en la lista ni en el buscador.
+  - Si hay una línea conectada, el texto dice por dónde entrar, que sigas
+    el pasillo, si subes o bajas por una escalera, y que llegas a la puerta
+    marcada. El tramo de afuera se ve atenuado y el de adentro, completo.
+  - Una escalera cerca de una ruta en cada planta une esos dos trazos.
+    No hace falta que la línea termine justo en una esquina: basta con que
+    pase junto a la escalera.
+  - La ruta de la Planta 1 también puede empezar en la entrada del croquis.
+  - Se corrigió un fallo: el cálculo trataba los puntos del grafo como
+    arreglos y por eso la ruta interior no se encontraba.
+
+3.5 Atajos del editor
+---------------------
+Con la herramienta Seleccionar:
+  - Shift+clic gira 15°. Los pines y las escaleras no giran.
+  - Ctrl+clic mueve el centro del objeto al punto.
+  - Alt+clic elimina.
+  - Ctrl+C copia y Ctrl+V pega.
+  - Ctrl+Z deshace y Ctrl+Y rehace.
+
+3.6 Fotos de los lugares
+------------------------
+En el editor, "Cargar foto" guarda una imagen reducida del lugar.
+Quien consulte el mapa la ve en la ficha, antes de ir. "Quitar foto" la
+borra. El servidor acepta mapas de hasta 8 MB para que quepan las fotos.
+Si se cambia ese límite hay que reiniciar server.py.
+
+3.7 Icono y pantalla de entrada
+-------------------------------
+- icono.png es el emblema "Explorando FCAV". Como el archivo es muy ancho,
+  el sitio usa un recorte cuadrado (favicon.png).
+- Ese recorte es el icono de la pestaña y el logo junto al título.
+- Al entrar, el logo queda al centro un segundo y después aparece el mapa.
+
+3.8 Zonas caminables
+---------------------
+Herramienta "Zona" (tecla Z). Es un área, no una línea: el suelo por donde
+sí se puede caminar. "Cómo llegar" calcula el camino más corto dentro de
+ella. No atraviesa edificios ni muros. Las zonas que se tocan quedan
+unidas. Una escalera que cae dentro de la zona de cada planta pasa de una
+a la otra. No sale en la lista ni en el buscador, y solo se ve en el editor.
+
+3.9 Cómo se calcula "Cómo llegar" ahora
+----------------------------------------
+Ya no existe la red fija de calles. Esos tramos no se podían borrar en el
+editor y desviaban los caminos dibujados (el rodeo en L hasta el fondo de
+Calle Universidad). Las calles grises del croquis siguen siendo el dibujo
+del campus; no son un camino.
+
+El orden es este:
+  1. Si una zona une el origen con el destino, se usa el camino más corto
+     dentro de esa área.
+  2. Si no, se usan las líneas de ruta de la planta en la que está la
+     persona. Las de la vista aérea no sustituyen a las de la Planta 1 ni
+     a las de la Planta 2. La escalera une la línea de una planta con la
+     de la otra.
+  3. Si no hay zona ni línea hasta el lugar, no se dibuja camino. La ficha
+     pide marcarlo en el editor.
+
+Al pedir "Cómo llegar", el sitio pregunta si estás en la Planta 1 o en la
+Planta 2. Si el lugar está en la otra planta, primero dibuja el camino
+hasta una escalera y pide subir o bajar. El botón "Ya estoy en la Planta…"
+confirma el cambio y entonces sigue la ruta en esa planta. Si ya estás en
+la misma planta, el camino va directo, sin ese paso.
+
+Sin ubicación activa, el camino sale de la entrada del campus y sigue las
+líneas de la planta elegida. Con "Mi ubicación", sale de ahí. Un lugar de
+la vista aérea, si no hay ubicación, usa solo las líneas de esa vista.
+
+3.10 Giroscopio
+---------------
+Botón de brújula, junto a "Mi ubicación".
+  - El mapa gira para que lo que tienes adelante quede arriba.
+  - La ruta va dibujada en el mapa, así que gira con él: el tramo que
+    sigue queda hacia el frente.
+  - La N de la esquina señala el norte real, según la calibración GPS.
+  - Si hay ubicación, el punto se queda al centro y marca hacia dónde
+    apuntas. Arrastrar suelta el centro; tocar otra vez la brújula lo
+    recupera. Un toque más devuelve el croquis fijo.
+  - En el iPhone hay que aceptar el permiso de movimiento. Hace falta
+    https (el túnel). Si el equipo no tiene brújula, el botón avisa.
+  - Al entrar al editor se apaga, para que el dibujo no se mueva.
+
+
+====================================================================
+4. CÓMO USARLO
+====================================================================
+
+1) En la carpeta del proyecto:
+       python server.py
+
+2) En la PC entra a:  http://localhost:8000
+   Desde el celular en la misma Wi-Fi, usa la IP que imprime el servidor
+   (ahí funciona todo menos "Mi ubicación").
+
+3) Para usar el GPS en el celular, abre OTRA terminal y ejecuta:
+       cloudflared tunnel --url http://localhost:8000
+   Luego abre en el teléfono el link https://....trycloudflare.com que
+   aparece en el recuadro. Se cierra con Ctrl+C. Cada vez que lo abres,
+   el link es distinto.
+
+4) Si cambias server.py, reinicia el servidor.
+   Si cambias los otros archivos, basta con recargar la página (Ctrl+F5).
+
+5) En el editor, las teclas son: V seleccionar, B figura, P pin, M muro,
+   U puerta, E escalera, Z zona caminable, R ruta, D borrar, G calibrar GPS.
+
+6) El botón de la brújula, junto a "Mi ubicación", gira el mapa con el
+   celular. En la computadora no hay brújula.
+
+IMPORTANTE: usa siempre "python server.py". Con "python -m http.server"
+o Live Server los cambios vuelven a guardarse solo en tu equipo.
+
+
+====================================================================
+5. ARCHIVOS DEL PROYECTO
+====================================================================
+
+index.html    Estructura de la página, icono y pantalla de entrada
+styles.css    Diseño, incluida la versión para celular
+data.js       Categorías, plantas, entrada del croquis y datos iniciales
+app.js        Mapa, buscador, rutas, zonas, GPS, brújula, calibración, plantas y sincronización
+editor.js     Modo editor, muros, puertas, escaleras, zonas, rutas, fotos y atajos
+server.py     Servidor que entrega el sitio y guarda el mapa y la calibración
+icono.png     Emblema original
+favicon.png   Recorte cuadrado del emblema, usado como icono y en el título
+data/         Mapa (mapa.json) y calibración (calibracion.json) publicados
+Idea.txt      Idea original del croquis
+Resumen.txt   Este resumen
+
+
+====================================================================
+6. LO QUE FALTA
+====================================================================
+
+- Seguir trazando zonas y líneas de ruta, y acercar cada escalera a la
+  ruta de las dos plantas. Sin eso, "Cómo llegar" no dibuja camino.
+- Dibujar el interior real: las herramientas ya están, pero todavía hay
+  que trazar aulas, muros, puertas y líneas de ruta dentro de cada edificio.
+- Revisar las puertas de los edificios: la ruta de afuera termina en ellas,
+  y algunas quedaron en esquinas que quizá no son la entrada real.
+- Completar los datos: muchos lugares siguen con horarios y contenido
+  "Por definir".
+- Proteger el editor: hoy cualquiera con el link puede editar, y eso importa
+  sobre todo con el túnel público.
+- Publicarlo en un hosting: por ahora solo funciona mientras tu PC esté
+  prendida.

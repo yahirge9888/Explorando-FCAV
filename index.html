@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b3a8c" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Explorando FCAV</title>
+  <link rel="icon" href="favicon.png" type="image/png" />
+  <link rel="apple-touch-icon" href="favicon.png" />
+  <meta name="description"
+    content="Croquis interactivo de la facultad: encuentra la biblioteca, cafetería, edificios y servicios, y consulta cómo llegar." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+  <div id="splash" class="splash">
+    <img src="favicon.png" alt="Explorando FCAV" />
+  </div>
+  <script>
+    setTimeout(() => {
+      const splash = document.getElementById("splash");
+      if (!splash) return;
+      splash.classList.add("splash-hide");
+      setTimeout(() => splash.remove(), 400);
+    }, 1000);
+  </script>
+  <header class="topbar">
+    <div class="brand">
+      <img class="brand-logo" src="favicon.png" alt="" />
+      <div>
+        <h1>Explorando FCAV</h1>
+        <p>Croquis interactivo del campus</p>
+      </div>
+    </div>
+    <div class="search">
+      <span class="search-icon">⌕</span>
+      <input id="search-input" type="search" placeholder="Buscar biblioteca, cafetería, edificio A…"
+        autocomplete="off" />
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <span id="sync-status" class="sync-status">Buscando servidor…</span>
+    <button id="editor-toggle" class="editor-toggle" type="button">✎ Modo editor</button>
+  </header>
+
+  <main class="layout">
+    <aside id="sidebar" class="sidebar" aria-label="Lista de lugares">
+      <div class="drawer-head">
+        <span class="drawer-grip" aria-hidden="true"></span>
+        <strong>Lugares</strong>
+        <button id="drawer-close" class="drawer-close" aria-label="Cerrar lista">×</button>
+      </div>
+      <div id="filters" class="filters" role="group" aria-label="Filtros por categoría"></div>
+      <ul id="place-list" class="place-list"></ul>
+    </aside>
+
+    <section class="map-wrap" aria-label="Mapa">
+      <svg id="map" viewBox="0 0 1024 580" preserveAspectRatio="xMidYMid meet" role="img"
+        aria-label="Croquis de la facultad"></svg>
+
+      <div class="map-controls">
+        <button id="locate-btn" class="locate" aria-label="Mostrar mi ubicación" title="Mi ubicación">◎</button>
+        <button id="heading-btn" class="heading" type="button" aria-pressed="false" aria-label="Girar el mapa con la brújula" title="Girar con la brújula">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 2.2 15.1 12 12 10.2 8.9 12Z" fill="currentColor" />
+            <path d="M12 21.8 8.9 12 12 13.8 15.1 12Z" fill="currentColor" opacity="0.4" />
+          </svg>
+        </button>
+        <button id="zoom-in" aria-label="Acercar">+</button>
+        <button id="zoom-out" aria-label="Alejar">−</button>
+        <button id="zoom-reset" aria-label="Restablecer vista">⟲</button>
+      </div>
+
+      <div id="floor-switch" class="floor-switch" role="tablist" aria-label="Capa del mapa"></div>
+
+      <div id="compass" class="compass" title="Norte" aria-hidden="true"><span>N</span><i></i></div>
+
+      <div id="toast" class="toast" role="status" hidden></div>
+
+      <!-- Editor de figuras (solo visible en modo editor) -->
+      <div id="editor-bar" class="editor-bar" hidden>
+        <div class="tools" role="toolbar" aria-label="Herramientas de dibujo">
+          <button type="button" class="tool active" data-tool="select" title="Seleccionar y mover (V)">⬚
+            Seleccionar</button>
+          <button type="button" class="tool" data-tool="poly" title="Dibujar figura / edificio (B)">▱ Figura</button>
+          <button type="button" class="tool" data-tool="pin" title="Colocar pin (P)">● Pin</button>
+          <button type="button" class="tool" data-tool="wall" title="Trazar un muro (M)">▬ Muro</button>
+          <button type="button" class="tool" data-tool="door" title="Marcar la puerta de un lugar (U)">▭ Puerta</button>
+          <button type="button" class="tool" data-tool="stair" title="Colocar una escalera entre plantas (E)">⇅
+            Escalera</button>
+          <button type="button" class="tool" data-tool="zone" title="Marcar el área por donde se puede caminar (Z)">▢ Zona</button>
+          <button type="button" class="tool" data-tool="route" title="Trazar por dónde se camina (R)">↝ Ruta</button>
+          <button type="button" class="tool" data-tool="delete" title="Borrar figura (D)">✕ Borrar</button>
+          <button type="button" class="tool" data-tool="bg" title="Mover la imagen de fondo">✥ Mover fondo</button>
+          <button type="button" class="tool" data-tool="calib" title="Calibrar el GPS con puntos de control (G)">⌖
+            Calibrar GPS</button>
+          <button type="button" id="ed-finish" class="finish" hidden>✓ Terminar figura</button>
+        </div>
+        <div class="tools">
+          <button type="button" id="ed-undo" title="Deshacer (Ctrl+Z)">↶ Deshacer</button>
+          <button type="button" id="ed-redo" title="Rehacer (Ctrl+Y)">↷ Rehacer</button>
+          <label class="file-btn"
+            title="Importa una imagen (por ejemplo la vista aérea de Google Maps) para calcar encima. Solo se ve en el editor.">🖼
+            Imagen de apoyo<input type="file" id="ed-bg" accept="image/*" hidden /></label>
+          <label class="slider" title="Opacidad de la imagen">Opacidad <input type="range" id="ed-bg-opacity" min="10"
+              max="100" value="50" aria-label="Opacidad del fondo" /></label>
+          <label class="slider" title="Tamaño de la imagen">Tamaño <input type="range" id="ed-bg-scale" min="30"
+              max="300" value="100" aria-label="Tamaño del fondo" /></label>
+          <button type="button" id="ed-bg-clear" title="Quitar la imagen de apoyo">✕ Quitar imagen</button>
+        </div>
+        <div class="tools">
+          <button type="button" id="ed-export" title="Descargar el mapa como archivo JSON">⭳ Exportar</button>
+          <label class="file-btn" title="Cargar un mapa exportado">⭱ Importar<input type="file" id="ed-import"
+              accept=".json,application/json" hidden /></label>
+          <button type="button" id="ed-reset" title="Volver al mapa original">↺ Restablecer</button>
+          <span id="ed-saved" class="ed-saved" aria-live="polite"></span>
+        </div>
+        <p id="ed-hint" class="ed-hint"></p>
+      </div>
+
+      <aside id="editor-panel" class="editor-panel" hidden aria-label="Propiedades del lugar">
+        <span id="ed-kind" class="ed-kind"></span>
+        <label>Nombre<input id="ed-name" type="text" maxlength="80" /></label>
+        <label>Categoría<select id="ed-cat"></select></label>
+        <label>Planta<select id="ed-floor"></select></label>
+        <label>Descripción<textarea id="ed-desc" rows="3" maxlength="300"></textarea></label>
+        <label>Horario<input id="ed-hours" type="text" maxlength="60" /></label>
+        <label>Contiene<input id="ed-includes" type="text" maxlength="120" /></label>
+        <div id="ed-door" class="ed-extra" hidden>
+          <p id="ed-door-status"></p>
+          <button type="button" id="ed-door-clear">Quitar puerta</button>
+        </div>
+        <div id="ed-stair" class="ed-extra" hidden>
+          <p id="ed-stair-status"></p>
+          <button type="button" id="ed-stair-align">Igualar la otra planta</button>
+        </div>
+        <div id="ed-photo" class="ed-extra" hidden>
+          <p>Foto del lugar. Quien consulte el sitio la ve antes de ir.</p>
+          <img id="ed-photo-preview" class="ed-photo-preview" alt="" hidden />
+          <label class="file-btn">Cargar foto<input type="file" id="ed-photo-file" accept="image/*" hidden /></label>
+          <button type="button" id="ed-photo-clear" hidden>Quitar foto</button>
+        </div>
+        <button type="button" id="ed-delete" class="danger">Eliminar este lugar</button>
+      </aside>
+
+      <aside id="calib-panel" class="editor-panel calib-panel" hidden aria-label="Calibración GPS">
+        <span class="ed-kind">Calibración GPS</span>
+        <ol class="calib-steps">
+          <li>Haz clic en el croquis sobre un punto que reconozcas (esquina de un edificio, un cruce).</li>
+          <li>Pega sus coordenadas reales. En Google Maps: clic derecho sobre ese mismo punto y clic en los números para
+            copiarlos.</li>
+          <li>Repite con al menos 3 puntos separados entre sí (mejor 4 o más, en las orillas del campus).</li>
+        </ol>
+        <ol id="calib-list" class="calib-list"></ol>
+        <p id="calib-status" class="calib-status"></p>
+        <button type="button" id="calib-apply" class="calib-apply">✓ Aplicar y publicar</button>
+        <button type="button" id="calib-clear" class="danger">Quitar calibración</button>
+      </aside>
+
+      <article id="info-card" class="info-card" hidden>
+        <button id="info-close" class="info-close" aria-label="Cerrar">×</button>
+        <span id="info-tag" class="tag"></span>
+        <h2 id="info-name"></h2>
+        <img id="info-photo" class="info-photo" alt="" hidden />
+        <p id="info-desc"></p>
+        <dl>
+          <div id="info-floor-row" hidden>
+            <dt>Ubicación</dt>
+            <dd id="info-floor"></dd>
+          </div>
+          <div>
+            <dt>Horario</dt>
+            <dd id="info-hours"></dd>
+          </div>
+          <div>
+            <dt>Contiene</dt>
+            <dd id="info-includes"></dd>
+          </div>
+        </dl>
+        <button id="route-btn" class="primary">Cómo llegar</button>
+        <div id="route-ask" class="route-ask" hidden>
+          <p id="route-ask-title" class="route-ask-title">¿En qué planta te encuentras?</p>
+          <p id="route-ask-hint" class="route-ask-hint"></p>
+          <div class="route-ask-actions">
+            <button type="button" class="route-choice" data-from-floor="p1">Planta 1</button>
+            <button type="button" class="route-choice" data-from-floor="p2">Planta 2</button>
+          </div>
+          <button type="button" id="route-ask-cancel" class="route-cancel">Cancelar</button>
+        </div>
+        <p id="route-note" class="route-note" hidden></p>
+        <button type="button" id="route-next" class="primary" hidden>Ya estoy en la otra planta</button>
+        <button type="button" id="route-back" class="route-cancel" hidden>Elegir otra planta</button>
+      </article>
+
+      <button id="list-toggle" class="list-toggle" aria-expanded="false" aria-controls="sidebar">☰ Lugares</button>
+    </section>
+  </main>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+  <script src="editor.js"></script>
+</body>
+
+</html>
