@@ -5,7 +5,8 @@ const CATEGORIES = {
   servicio:       { label: "Servicios",       color: "#1f6fe0" },
   estacionamiento:{ label: "Estacionamientos", color: "#2aa876" },
   aula:           { label: "Aulas y salones", color: "#8e44ad" },
-  escalera:       { label: "Escaleras",       color: "#0f9d9a" },
+  // La escalera se ve en el mapa y une las plantas; no es un lugar de la lista ni del buscador
+  escalera:       { label: "Escaleras",       color: "#0f9d9a", listed: false },
   // Los pasillos se dibujan en el mapa pero no aparecen en la lista ni en el buscador
   pasillo:        { label: "Pasillos",        color: "#8a96ab", listed: false },
   // Los muros solo separan espacios: no son un lugar al que se pueda ir

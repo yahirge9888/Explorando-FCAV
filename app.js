@@ -19,6 +19,8 @@
   const floorLabel = (id) => (FLOORS.find((f) => f.id === id) || FLOORS[0]).label;
   const listed = (p) => CATEGORIES[p.cat].listed !== false;
   const floorOfRaw = (p) => (FLOORS.some((f) => f.id === p.floor) ? p.floor : "ext");
+  // Edificio dibujado en la vista aérea. También es un destino de «Cómo llegar» desde una planta.
+  const isOutdoorBuilding = (p) => floorOfRaw(p) === "ext" && p.kind === "poly" && p.cat === "edificio";
   // Una escalera vive en varias plantas a la vez (spans); el resto, en una sola.
   function placeFloors(p) {
     if (p.kind === "stair" && p.spans) {
@@ -49,7 +51,7 @@
   }
 
   // API compartida con el editor (editor.js)
-  const App = (window.App = { editing: false, hooks: {} });
+  const App = (window.App = { editing: false, routeMode: false, hooks: {} });
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
   // Fuente de verdad: /api/map (server.py). localStorage es caché / respaldo sin servidor.
@@ -123,13 +125,45 @@
   const placesLayer = el("g", {}, viewport);
   let buildingEls = {};
 
-  const addLabel = (parent, text, x, y, cls, anchor = "middle") => {
-    const t = el("text", { x, y, class: cls, "text-anchor": anchor }, parent);
-    text.split("\n").forEach((line, i) => {
-      const s = el("tspan", { x, dy: i === 0 ? 0 : 15 }, t);
+  const addLabel = (parent, text, x, y, cls, anchor = "middle", size = 0) => {
+    const lines = String(text).split("\n");
+    const dy = size ? size * 1.15 : 15;
+    const y0 = size && lines.length > 1 ? y - ((lines.length - 1) * dy) / 2 : y;
+    const t = el("text", { x, y: y0, class: cls, "text-anchor": anchor }, parent);
+    if (size) {
+      t.style.fontSize = size + "px";
+      t.style.strokeWidth = Math.max(1.25, size * 0.22) + "px";
+    }
+    lines.forEach((line, i) => {
+      const s = el("tspan", { x, dy: i === 0 ? 0 : dy }, t);
       s.textContent = line;
     });
   };
+
+  // En figuras chicas (salones pegados) la letra de 14 no cabe y se monta con la vecina.
+  function labelSize(p) {
+    if (p.kind !== "poly" || !p.points || !p.label) return 0;
+    const pts = p.points.trim().split(/\s+/).map((q) => q.split(",").map(Number)).filter((q) => q.length === 2 && q.every((n) => n === n));
+    if (pts.length < 3) return 0;
+    let minY = Infinity, maxY = -Infinity;
+    const across = [];
+    for (let i = 0; i < pts.length; i++) {
+      const [x, y] = pts[i];
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
+      const [x2, y2] = pts[(i + 1) % pts.length];
+      const dx = Math.abs(x2 - x), dy = Math.abs(y2 - y);
+      if (dx >= dy) across.push(dx);
+    }
+    const w = across.length ? Math.min(...across) : 0;
+    const h = maxY - minY;
+    if (!(w > 0) || !(h > 0)) return 0;
+    const lines = String(p.label).split("\n");
+    const longest = lines.reduce((m, line) => Math.max(m, line.length), 1);
+    const size = Math.min(14, (w * 0.92) / (longest * 0.56), (h * 0.7) / (lines.length * 1.2));
+    if (size >= 13) return 0;
+    return Math.max(7, Math.round(size * 10) / 10);
+  }
 
   // Hacia qué lado abre la puerta: +1 si el eje local +Y cae dentro del lugar.
   function doorSwing(p) {
@@ -179,7 +213,7 @@
       addLabel(g, p.label, x, y + 36, "lbl stair-lbl", "middle");
     } else if (p.kind === "poly") {
       el("polygon", { points: p.points, class: "shape", fill: color, stroke: color }, g);
-      addLabel(g, p.label, p.labelPos[0], p.labelPos[1], "lbl");
+      addLabel(g, p.label, p.labelPos[0], p.labelPos[1], "lbl", "middle", labelSize(p));
       drawDoor(g, p, color);
     } else {
       const [x, y] = p.door;
@@ -209,7 +243,7 @@
       const occupied = new Set(PLACES.filter((p) => onFloor(p, floor)).map((p) => (containerOf(p) || {}).id));
       PLACES.forEach((p) => {
         if (floorOfRaw(p) !== "ext" || p.kind !== "poly" || p.cat !== "edificio") return;
-        const g = el("g", { class: "floor-plate" }, placesLayer);
+        const g = el("g", { class: "floor-plate" + (selected === p.id ? " active" : ""), "data-id": p.id }, placesLayer);
         el("polygon", { points: p.points }, g);
         if (!occupied.has(p.id)) addLabel(g, p.label, p.labelPos[0], p.labelPos[1], "plate-lbl");
       });
@@ -218,7 +252,7 @@
     if (App.editing) here.filter((p) => p.kind === "zone").forEach(drawOne);
     here.filter((p) => p.kind === "wall").forEach(drawOne);
     here.filter((p) => p.kind !== "wall" && p.kind !== "route" && p.kind !== "zone").forEach(drawOne);
-    here.filter((p) => p.kind === "route").forEach(drawOne);
+    if (App.routeMode) here.filter((p) => p.kind === "route").forEach(drawOne);
   }
   drawPlaces();
 
@@ -357,8 +391,9 @@
   Object.entries(CATEGORIES).forEach(([k, c]) => { if (c.listed !== false) addChip(k, c.label, c.color); });
 
   function render() {
-    // Solo se muestran los filtros de categorías que existen en la planta actual
+    // En una planta, los edificios del campus también se pueden elegir como destino.
     const present = new Set(PLACES.filter((p) => onFloor(p, floor)).map((p) => p.cat));
+    if (floor !== "ext" && PLACES.some(isOutdoorBuilding)) present.add("edificio");
     if (activeCat !== "all" && !present.has(activeCat)) activeCat = "all";
     filters.querySelectorAll(".chip").forEach((c) => {
       c.classList.toggle("active", c.dataset.key === activeCat);
@@ -366,17 +401,28 @@
     });
     const list = $("place-list");
     list.innerHTML = "";
-    PLACES.forEach((p) => {
+    const rows = [];
+    PLACES.forEach((p, index) => {
+      const here = onFloor(p, floor);
+      const asBuilding = !here && floor !== "ext" && isOutdoorBuilding(p);
+      if (!here && !asBuilding) return;
       const g = buildingEls[p.id];
-      if (!g) return;
       const visible = p.kind === "wall" || p.kind === "route" || p.kind === "zone" || activeCat === "all" || p.cat === activeCat;
-      g.classList.toggle("dim", !visible);
-      g.classList.toggle("active", selected === p.id);
+      if (g) {
+        g.classList.toggle("dim", !visible);
+        g.classList.toggle("active", selected === p.id);
+      }
       if (!visible || !listed(p)) return;
+      rows.push({ p, asBuilding, index });
+    });
+    // Primero lo de esta planta, en el orden de siempre; después los edificios del campus.
+    rows.sort((a, b) => Number(a.asBuilding) - Number(b.asBuilding) || a.index - b.index);
+    rows.forEach(({ p, asBuilding }) => {
       const li = document.createElement("li");
       li.className = "place-item" + (selected === p.id ? " active" : "");
+      const detail = asBuilding ? "Edificios · entrada" : `${CATEGORIES[p.cat].label} · ${esc(p.hours)}`;
       li.innerHTML = `<i class="place-dot" style="background:${CATEGORIES[p.cat].color}"></i>
-        <div><strong>${esc(p.name)}</strong><span>${CATEGORIES[p.cat].label} · ${esc(p.hours)}</span></div>`;
+        <div><strong>${esc(p.name)}</strong><span>${detail}</span></div>`;
       li.onclick = () => select(p.id);
       list.appendChild(li);
     });
@@ -462,15 +508,51 @@
   function whereText(p) {
     if (p.kind === "stair") return placeFloors(p).map(floorLabel).join(" · ");
     const f = floorOfRaw(p);
-    return f === "ext" ? "" : floorLabel(f);
+    if (f !== "ext") return floorLabel(f);
+    return isOutdoorBuilding(p) ? "Campus" : "";
+  }
+
+  function collapseInfoSheet() {
+    const card = $("info-card");
+    const more = $("info-more");
+    card.classList.remove("expanded");
+    if (!more) return;
+    more.textContent = "Ver detalles";
+    more.setAttribute("aria-expanded", "false");
+  }
+  $("info-more").onclick = () => {
+    const card = $("info-card");
+    const open = card.classList.toggle("expanded");
+    $("info-more").textContent = open ? "Ocultar detalles" : "Ver detalles";
+    $("info-more").setAttribute("aria-expanded", String(open));
+  };
+
+  function maps360Url(raw) {
+    const text = String(raw || "").trim();
+    if (!text) return "";
+    let url;
+    try { url = new URL(text); } catch (err) { return null; }
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    const host = url.hostname.toLowerCase();
+    if (host === "maps.app.goo.gl") return url.href;
+    if ((host === "goo.gl" || host.endsWith(".goo.gl")) && url.pathname.startsWith("/maps")) return url.href;
+    const google = /(^|\.)google\.[a-z.]+$/.test(host);
+    if (!google) return null;
+    if (host.startsWith("maps.") || url.pathname.includes("/maps")) return url.href;
+    return null;
   }
 
   function select(id) {
     closeDrawer();
+    collapseInfoSheet();
     const p = PLACES.find((x) => x.id === id);
     if (!p || p.kind === "wall" || p.kind === "route" || p.kind === "zone") return;
     activeRoute = null;
-    if (!onFloor(p, floor)) setFloor(floorOf(p));
+    // En planta 1 o 2 el edificio se queda en esa vista: desde ahí se pide la ruta a su entrada.
+    const stayForRoute = isOutdoorBuilding(p) && (floor === "p1" || floor === "p2");
+    if (stayForRoute) selected = id;
+    if (!onFloor(p, floor) && !stayForRoute) setFloor(floorOf(p));
+    else if (stayForRoute) drawPlaces();
     selected = id;
     const cat = CATEGORIES[p.cat];
     $("info-tag").textContent = cat.label;
@@ -482,17 +564,25 @@
     else { photo.hidden = true; photo.removeAttribute("src"); }
     $("info-hours").textContent = p.hours;
     $("info-includes").textContent = p.includes;
+    const view360 = $("info-360");
+    const mapsUrl = maps360Url(p.maps360);
+    if (mapsUrl) { view360.href = mapsUrl; view360.hidden = false; }
+    else { view360.hidden = true; view360.removeAttribute("href"); }
     const box = containerOf(p);
     if (p.kind === "stair") {
       const names = placeFloors(p).map(floorLabel);
       $("info-floor-row").hidden = false;
       $("info-floor").textContent = `Conecta ${names.join(" y ")}` + (box ? ` · ${box.name}` : "");
+    } else if (isOutdoorBuilding(p)) {
+      $("info-floor-row").hidden = false;
+      $("info-floor").textContent = "Campus · la ruta llega a la entrada";
     } else {
       const f = floorOfRaw(p);
       $("info-floor-row").hidden = f === "ext";
       $("info-floor").textContent = f === "ext" ? "" : floorLabel(f) + (box ? ` · ${box.name}` : "");
     }
     resetRouteAsk();
+    closeMapsLeave();
     $("info-card").hidden = false;
     activeRoute = null;
     routeLayer.innerHTML = "";
@@ -502,12 +592,37 @@
     selected = null;
     activeRoute = null;
     routePlan = null;
+    collapseInfoSheet();
     $("info-card").hidden = true;
     routeLayer.innerHTML = "";
     resetRouteAsk();
+    closeMapsLeave();
+    if (floor !== "ext") drawPlaces();
     render();
   }
   $("info-close").onclick = hideInfo;
+
+  const mapsLeave = $("maps-leave");
+  function closeMapsLeave() { mapsLeave.hidden = true; }
+  $("info-360").addEventListener("click", (e) => {
+    if (!$("info-360").getAttribute("href")) return;
+    e.preventDefault();
+    mapsLeave.hidden = false;
+    $("maps-leave-go").focus();
+  });
+  $("maps-leave-cancel").onclick = closeMapsLeave;
+  mapsLeave.addEventListener("click", (e) => { if (e.target === mapsLeave) closeMapsLeave(); });
+  $("maps-leave-go").onclick = () => {
+    const href = $("info-360").getAttribute("href");
+    closeMapsLeave();
+    if (href) window.open(href, "_blank", "noopener,noreferrer");
+  };
+  document.addEventListener("keydown", (e) => {
+    if (mapsLeave.hidden || e.key !== "Escape") return;
+    e.preventDefault();
+    e.stopPropagation();
+    closeMapsLeave();
+  }, true);
 
   // ---------- Ruta ----------
   const dist2 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -848,7 +963,12 @@
       let text = `≈ ${meters} m · ${Math.max(1, Math.round(meters / 80))} min caminando (estimado)`;
       const box = containerOf(p);
       if (p.kind === "stair") return text + `. ${p.name} conecta ${placeFloors(p).map(floorLabel).join(" y ")}.`;
-      if (destFloor === "ext") return text;
+      if (destFloor === "ext") {
+        if (startFloor === "p1" || startFloor === "p2") {
+          return text + (p.cat === "edificio" ? `. Llegas a la entrada de ${p.name}.` : `. Llegas a ${p.name}.`);
+        }
+        return text;
+      }
       if (!reachedInside) {
         const stair = stairInBuilding(box, destFloor, anchorOf(p, destFloor));
         const via = stair ? ` por ${stair.name}` : "";
@@ -877,8 +997,22 @@
 
     const full = pack(search(startFloor, startPt, destFloor, destPt), destFloor !== "ext");
     if (full) return emit(full);
-    // Desde una planta no se arma el tramo de afuera: o hay camino interior o no hay ruta.
-    if (startFloor !== "ext") return null;
+    // Desde una planta, un edificio (u otro lugar de afuera) se alcanza por la zona de esa planta,
+    // hasta su entrada. La planta 2 baja a la 1 si la entrada cae en la zona de abajo.
+    if (startFloor !== "ext") {
+      if (destFloor === "ext") {
+        const targets = [];
+        if (startFloor === "p1" || startFloor === "p2") targets.push("p1");
+        if (startFloor === "p2") targets.push("p2");
+        for (let i = 0; i < targets.length; i++) {
+          const fl = targets[i];
+          if (allowedFloors && !allowedFloors.has(fl)) continue;
+          const landed = pack(search(startFloor, startPt, fl, destPt), false);
+          if (landed) return emit(landed);
+        }
+      }
+      return null;
+    }
 
     const box = containerOf(p);
     if (destFloor !== "ext" && box && Array.isArray(box.door) && grids.ext) {
@@ -1000,11 +1134,20 @@
         if (into) join("gate:" + box.id, into);
       }
     }
+    // Engancha el destino a la línea de ruta más cercana de una planta.
+    function hookDest(floorId, maxDist) {
+      if (!allow(floorId)) return false;
+      if (attach("dest", destPt, floorId, maxDist)) return true;
+      const near = nearestGraph(nodes, destPt, floorId, maxDist, new Set(["dest"]));
+      if (!near) return false;
+      join("dest", near);
+      return true;
+    }
     if (destFloor === "ext") {
-      if (!attach("dest", destPt, "ext", 80)) {
-        const near = nearestGraph(nodes, destPt, "ext", 80, new Set(["dest"]));
-        if (near) join("dest", near);
-      }
+      hookDest("ext", 80);
+      // La entrada del edificio no tiene líneas en la vista aérea: se une a la Planta 1.
+      const fromIndoor = origin && (origin.floor === "p1" || origin.floor === "p2");
+      if (fromIndoor) hookDest("p1", 160);
     } else {
       if (!attach("dest", destPt, destFloor, 80)) {
         const near = nearestGraph(nodes, destPt, destFloor, 80, new Set(["dest"]));
@@ -1017,7 +1160,9 @@
     const startFloor = origin ? origin.floor : "ext";
     const startPt = origin ? origin.pt : (userPos || entrance);
     add("start", startPt[0], startPt[1], startFloor);
-    const reach = origin ? 80 : (userPos ? 140 : 90);
+    // Sin ubicación el origen es la entrada del campus. En la Planta 2 esa entrada
+    // queda más lejos de los pasillos, así que el enganche admite un poco más.
+    const reach = userPos ? 80 : 180;
     let hooked = attach("start", startPt, startFloor, reach);
     // Desde la vista aérea no se salta a las líneas de una planta: cada capa usa las suyas.
     if (!hooked) {
@@ -1066,6 +1211,8 @@
       });
       if (p.kind !== "stair" && p.entry) bits.push("llega a la puerta marcada");
       if (bits.length) text += ". " + bits[0].charAt(0).toUpperCase() + bits[0].slice(1) + (bits.length > 1 ? ", " + bits.slice(1).join(", ") : "") + ".";
+    } else if (origin && (origin.floor === "p1" || origin.floor === "p2")) {
+      text += p.cat === "edificio" ? `. Llegas a la entrada de ${p.name}.` : `. Llegas a ${p.name}.`;
     }
     return { segments, text, climbs };
   }
@@ -1103,10 +1250,10 @@
     return `≈ ${meters} m · ${Math.max(1, Math.round(meters / 80))} min. `;
   }
 
-  // Sin ubicación, el camino sale de la entrada del campus, pero sobre las líneas de la planta elegida.
+  // Sin ubicación, el camino sale de la entrada del campus, sobre las líneas de la planta elegida.
+  // También si el destino es un edificio: la planta elegida es el punto de partida.
   function originFor(p, userFloor) {
     if (userPos) return { pt: userPos.slice(), floor: userFloor };
-    if (p.kind !== "stair" && floorOfRaw(p) === "ext") return null;
     return { pt: NODES[ENTRANCE.link].slice(), floor: userFloor };
   }
 
@@ -1148,11 +1295,16 @@
     $("route-back").hidden = true;
     $("route-note").hidden = true;
     const indoor = p.kind === "stair" || floorOfRaw(p) !== "ext";
+    const toBuilding = isOutdoorBuilding(p);
     $("route-ask-hint").textContent = userPos
-      ? "La ruta sale de tu ubicación, en la planta que elijas."
-      : indoor
-        ? "Sin ubicación activa, el camino sigue las rutas de esa planta desde la entrada del campus."
-        : "Sin ubicación activa, el camino empieza en la entrada del campus.";
+      ? (simMode
+        ? "La ruta sale del punto de prueba, en la planta que elijas."
+        : "La ruta sale de tu ubicación, en la planta que elijas.")
+      : toBuilding
+        ? "Sin ubicación activa, el camino sale de la entrada del campus y sigue las rutas de la planta que elijas hasta el edificio."
+        : indoor
+          ? "Sin ubicación activa, el camino sigue las rutas de esa planta desde la entrada del campus."
+          : "Sin ubicación activa, el camino empieza en la entrada del campus.";
     $("route-ask").hidden = false;
   }
 
@@ -1166,8 +1318,10 @@
       : floorOfRaw(p);
     const fromFloor = origin ? origin.floor : "ext";
     // En una planta se usan las líneas de esa planta. Las de la vista aérea no entran al camino interior.
+    // Hacia un edificio, la Planta 1 también entra: la entrada se engancha a sus rutas y la Planta 2 baja por la escalera.
     const allowed = new Set([fromFloor, destFloor]);
     if (fromFloor !== "ext" && destFloor !== "ext") allowed.delete("ext");
+    if (destFloor === "ext" && (fromFloor === "p1" || fromFloor === "p2")) allowed.add("p1");
     const built = routeOnZones(p, origin, allowed) || routeOnNetwork(p, origin, allowed);
     if (!built) {
       failRoute("No hay un camino trazado hasta aquí. Marca una zona caminable o una línea de ruta en el editor.");
@@ -1221,7 +1375,7 @@
     $("route-next").hidden = true;
     $("route-back").hidden = true;
     $("route-btn").hidden = false;
-    const name = p ? p.name : "el lugar";
+    const name = p ? (isOutdoorBuilding(p) ? `la entrada de ${p.name}` : p.name) : "el lugar";
     const where = floorLabel(plan.toFloor);
     let text = segs.some((s) => !s.stair)
       ? `${legSummary(segs)}Ya estás en la ${where}. Sigue el camino hasta ${name}.`
@@ -1239,11 +1393,13 @@
     listToggle.setAttribute("aria-expanded", String(open));
   };
   $("drawer-close").onclick = closeDrawer;
+  svg.addEventListener("click", () => closeDrawer());
 
   // ---------- Mi ubicación (Geolocation API) ----------
   let userPos = null, watchId = null, centered = false, lastCoords = null;
+  let simMode = false, simPicking = false, simSwallow = false;
   const userLayer = el("g", { class: "user-layer" }, viewport);
-  const locateBtn = $("locate-btn"), toast = $("toast");
+  const locateBtn = $("locate-btn"), simBtn = $("sim-btn"), toast = $("toast");
   const simParam = new URLSearchParams(location.search).get("sim"); // ?sim=lat,lon para pruebas
 
   function showToast(msg, ms = 4000) {
@@ -1346,7 +1502,6 @@
     lastCoords = { coords: { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy } };
     const [x, y] = geoToMap(pos.coords.latitude, pos.coords.longitude);
     const acc = pos.coords.accuracy || 0;
-    userLayer.innerHTML = "";
     const inside = x > -150 && x < VB.w + 150 && y > -100 && y < VB.h + 100;
     if (!inside) {
       userPos = null;
@@ -1354,14 +1509,7 @@
       showToast("Parece que estás fuera del campus: no se puede mostrar tu ubicación en el croquis.");
       return;
     }
-    userPos = [x, y];
-    updateRouteLabel();
-    if (acc > 0) el("circle", { cx: x, cy: y, r: Math.max(acc / mPerPx(), 8), class: "user-acc" }, userLayer);
-    const head = el("g", { class: "user-heading", visibility: "hidden" }, userLayer);
-    el("path", { d: "", stroke: "#fff", "stroke-width": "2", "stroke-linejoin": "round", "vector-effect": "non-scaling-stroke" }, head);
-    el("circle", { cx: x, cy: y, r: 9, class: "user-halo" }, userLayer);
-    el("circle", { cx: x, cy: y, r: 6, class: "user-dot" }, userLayer);
-    updateCone();
+    paintUser(x, y, acc, false);
     if (!centered) {
       centered = true;
       view.k = Math.max(view.k, headingOn ? 1.5 : 1.4);
@@ -1380,15 +1528,37 @@
     stopLocating();
     showToast(msgs[err.code] || "Error al obtener la ubicación.", 5000);
   }
+  function paintUser(x, y, acc, simulated) {
+    userLayer.innerHTML = "";
+    userPos = [x, y];
+    updateRouteLabel();
+    if (acc > 0) el("circle", { cx: x, cy: y, r: Math.max(acc / mPerPx(), 8), class: "user-acc" }, userLayer);
+    const head = el("g", { class: "user-heading", visibility: "hidden" }, userLayer);
+    el("path", { d: "", stroke: "#fff", "stroke-width": "2", "stroke-linejoin": "round", "vector-effect": "non-scaling-stroke" }, head);
+    el("circle", { cx: x, cy: y, r: 9, class: "user-halo" }, userLayer);
+    el("circle", { cx: x, cy: y, r: 6, class: "user-dot" }, userLayer);
+    if (simulated) el("text", { x, y: y - 16, "text-anchor": "middle", class: "user-sim-label" }, userLayer).textContent = "Prueba";
+    updateCone();
+  }
+  function syncSimButton() {
+    simBtn.classList.toggle("active", simMode);
+    simBtn.classList.toggle("picking", simPicking);
+    simBtn.setAttribute("aria-pressed", String(simMode || simPicking));
+    document.body.classList.toggle("sim-picking", simPicking);
+  }
   function stopLocating() {
     if (watchId !== null) navigator.geolocation.clearWatch(watchId);
     watchId = null; userPos = null; centered = false; lastCoords = null;
+    simMode = false; simPicking = false;
     view.follow = false;
     userLayer.innerHTML = "";
     locateBtn.classList.remove("active");
+    syncSimButton();
     updateRouteLabel();
   }
   function beginLocating() {
+    simMode = false; simPicking = false;
+    syncSimButton();
     locateBtn.classList.add("active");
     if (simParam) {
       const [lat, lon] = simParam.split(",").map(Number);
@@ -1403,6 +1573,61 @@
     if (locateBtn.classList.contains("active")) { stopLocating(); showToast("Ubicación desactivada", 2000); return; }
     beginLocating();
   };
+
+  function placeSim(x, y) {
+    if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+    lastCoords = null;
+    locateBtn.classList.remove("active");
+    simMode = true;
+    simPicking = false;
+    centered = true;
+    view.follow = false;
+    paintUser(x, y, 0, true);
+    syncSimButton();
+    showToast("Punto de prueba listo. «Cómo llegar» sale de aquí. Pulsa el botón para moverlo; púlsalo otra vez para quitarlo.", 6000);
+  }
+  simBtn.onclick = () => {
+    if (simPicking) {
+      stopLocating();
+      showToast("Ubicación de prueba quitada.", 2000);
+      return;
+    }
+    if (watchId !== null) {
+      navigator.geolocation.clearWatch(watchId);
+      watchId = null;
+      locateBtn.classList.remove("active");
+    }
+    simPicking = true;
+    syncSimButton();
+    showToast(simMode
+      ? "Haz clic en el mapa para mover el punto. Escape lo deja donde está; el botón lo quita."
+      : "Haz clic en el mapa: ese punto será tu ubicación para probar las rutas.", 5000);
+  };
+  svg.addEventListener("pointerdown", (e) => {
+    if (!simPicking || e.button > 0) return;
+    e.stopPropagation();
+    const [x, y] = toMap(e);
+    placeSim(x, y);
+    simSwallow = true;
+  }, true);
+  svg.addEventListener("click", (e) => {
+    if (!simSwallow) return;
+    simSwallow = false;
+    e.stopPropagation();
+  }, true);
+  window.addEventListener("pointerup", () => {
+    if (!simSwallow) return;
+    setTimeout(() => { simSwallow = false; }, 0);
+  }, true);
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !simPicking) return;
+    e.preventDefault();
+    e.stopPropagation();
+    simPicking = false;
+    syncSimButton();
+    showToast(simMode ? "Se mantiene el punto de prueba." : "Simulación cancelada.", 2000);
+  }, true);
 
   // ---------- Brújula: el mapa y la ruta giran con el celular ----------
   // El rumbo 0 es el norte real. El croquis gira para que ese rumbo quede hacia arriba.
@@ -1859,11 +2084,17 @@
     clearCalibration,
     getCalibration: () => calib,
     showToast,
+    cancelSimPick() {
+      if (!simPicking) return;
+      simPicking = false;
+      syncSimButton();
+    },
     getFloor: () => floor,
     setFloor,
     floorOf,
     onFloor,
-    placeFloors
+    placeFloors,
+    maps360Url
   });
 
   render();

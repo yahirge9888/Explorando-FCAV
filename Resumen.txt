@@ -1,5 +1,5 @@
 RESUMEN DEL PROYECTO - MAPA INTERACTIVO DE LA FACULTAD (FCAV - UAT)
-Actualizado: 9 de octubre de 2026
+Actualizado: 13 de octubre de 2026
 
 
 El proyecto es un mapa web interactivo de la FCAV con tres capas (vista aérea,
@@ -112,8 +112,9 @@ llegar» usa esa escalera para pasar de una planta a la otra.
 
 3.4 Líneas de ruta
 ------------------
-Herramienta "Ruta" (tecla R). Es el camino por donde se camina, afuera o
-dentro de una planta. No sale en la lista ni en el buscador.
+Herramienta "Ruta", dentro de «Modificar rutas». Es el camino por donde se
+camina, afuera o dentro de una planta. No sale en la lista ni en el buscador,
+y la línea solo se ve en ese modo: en el mapa público queda oculta.
   - Si hay una línea conectada, el texto dice por dónde entrar, que sigas
     el pasillo, si subes o bajas por una escalera, y que llegas a la puerta
     marcada. El tramo de afuera se ve atenuado y el de adentro, completo.
@@ -179,8 +180,13 @@ confirma el cambio y entonces sigue la ruta en esa planta. Si ya estás en
 la misma planta, el camino va directo, sin ese paso.
 
 Sin ubicación activa, el camino sale de la entrada del campus y sigue las
-líneas de la planta elegida. Con "Mi ubicación", sale de ahí. Un lugar de
-la vista aérea, si no hay ubicación, usa solo las líneas de esa vista.
+líneas de la planta elegida. Con "Mi ubicación", sale de ahí. El botón de
+la mira, junto a ese, deja poner un punto de prueba en cualquier parte del
+croquis: «Cómo llegar» sale de ese punto, en la planta que elijas. Pulsarlo
+otra vez permite moverlo; pulsarlo de nuevo lo quita. Un lugar de
+la vista aérea, edificio incluido, también sale de esa entrada y sigue las
+rutas de la planta elegida. Si el destino es un edificio, el camino termina
+en su entrada (ver 3.14).
 
 3.10 Giroscopio
 ---------------
@@ -195,6 +201,47 @@ Botón de brújula, junto a "Mi ubicación".
   - En el iPhone hay que aceptar el permiso de movimiento. Hace falta
     https (el túnel). Si el equipo no tiene brújula, el botón avisa.
   - Al entrar al editor se apaga, para que el dibujo no se mueva.
+
+3.11 Interfaz del celular
+-------------------------
+En pantallas de hasta 800 px el mapa ocupa toda la pantalla.
+  - Arriba solo quedan el logo, el buscador y el selector de planta.
+  - La lista sale de una barra inferior, «Lugares», y no tapa el croquis
+    hasta que se abre.
+  - La ficha abre corta: nombre y «Cómo llegar». «Ver detalles» muestra
+    foto, horario y descripción.
+  - Los controles de zoom y ubicación van en una fila, encima de esa barra.
+  - El modo editor no está en el celular: no hay botón y no se puede entrar.
+
+3.12 Editor de rutas
+--------------------
+En el editor, el botón «Modificar rutas» abre un modo solo para las líneas.
+  - Ahí se ven las rutas. Fuera de ese modo, también en el mapa público,
+    las líneas quedan ocultas. «Cómo llegar» sigue usándolas.
+  - Solo se puede seleccionar, trazar, mover o borrar una ruta. Edificios,
+    muros, puertas, escaleras y zonas no se modifican.
+  - «Editor general» regresa al editor completo y vuelve a ocultar las líneas.
+
+3.13 Vista 360
+--------------
+En el editor, cada lugar (no muros, rutas ni zonas) tiene el campo
+«Vista 360». Ahí se pega el enlace de compartir de Google Maps.
+En la ficha, si el enlace es de Google Maps, aparece «Ver en 360 · Google Maps».
+Antes de abrir pregunta si sales del sitio; al confirmar, Google Maps se abre
+en otra pestaña. Un enlace de otro sitio no se guarda.
+
+3.14 Ruta hacia un edificio desde una planta
+---------------------------------------------
+Desde la Planta 1 o la Planta 2 también se puede pedir «Cómo llegar» a un
+edificio. El edificio es un destino: la ruta termina en su entrada.
+  - En la lista de esa planta, los edificios aparecen después de las aulas,
+    con el texto «Edificios · entrada». El buscador los muestra como «Campus».
+  - Al elegir uno no se cambia de planta. El contorno queda marcado.
+  - En la Planta 1 el camino sigue las rutas de esa planta hasta la entrada.
+  - En la Planta 2 primero lleva a una escalera y pide bajar. Al confirmar,
+    sigue en la Planta 1 hasta la entrada del edificio.
+  - Sin ubicación, el camino sale de la entrada del campus sobre las rutas
+    de la planta elegida.
 
 
 ====================================================================
@@ -218,7 +265,8 @@ Botón de brújula, junto a "Mi ubicación".
    Si cambias los otros archivos, basta con recargar la página (Ctrl+F5).
 
 5) En el editor, las teclas son: V seleccionar, B figura, P pin, M muro,
-   U puerta, E escalera, Z zona caminable, R ruta, D borrar, G calibrar GPS.
+   U puerta, E escalera, Z zona caminable, D borrar, G calibrar GPS.
+   Las rutas se trazan con «Modificar rutas» (ahí, R traza y D borra).
 
 6) El botón de la brújula, junto a "Mi ubicación", gira el mapa con el
    celular. En la computadora no hay brújula.
@@ -260,3 +308,8 @@ Resumen.txt   Este resumen
   sobre todo con el túnel público.
 - Publicarlo en un hosting: por ahora solo funciona mientras tu PC esté
   prendida.
+
+Notado al probar el sitio (Mis notas.txt, 9 de octubre):
+
+- Calibración del GPS: hay que calibrar de nuevo, o volver a ubicar los
+  edificios, porque la posición no coincide.

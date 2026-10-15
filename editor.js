@@ -23,6 +23,7 @@
   };
 
   let tool = "select";
+  let routeMode = false;
   let selId = null;
   let draft = null;   // puntos de la figura que se está dibujando
   let cursor = null;  // posición del puntero mientras se dibuja
@@ -208,6 +209,7 @@
 
   function fillPanel() {
     const p = selId && place(selId);
+    if (routeMode && p && p.kind !== "route") { $("editor-panel").hidden = true; return; }
     $("editor-panel").hidden = !(App.editing && p);
     if (!p) return;
     const wall = p.kind === "wall";
@@ -223,11 +225,13 @@
     $("ed-desc").value = p.desc || "";
     $("ed-hours").value = p.hours || "";
     $("ed-includes").value = p.includes || "";
+    $("ed-maps").value = p.maps360 || "";
     showField("ed-cat", !quiet && !stair);
     showField("ed-floor", !stair);
     showField("ed-desc", !quiet);
     showField("ed-hours", !quiet);
     showField("ed-includes", !quiet);
+    showField("ed-maps", !quiet);
     $("ed-delete").textContent = zone ? "Eliminar esta zona" : route ? "Eliminar esta ruta" : wall ? "Eliminar este muro" : stair ? "Eliminar esta escalera" : "Eliminar este lugar";
     const doorBox = $("ed-door");
     doorBox.hidden = quiet || stair;
@@ -274,6 +278,15 @@
   bind("ed-desc", (p, v) => { p.desc = v; });
   bind("ed-hours", (p, v) => { p.hours = v; });
   bind("ed-includes", (p, v) => { p.includes = v; });
+  bind("ed-maps", (p, v) => {
+    const url = App.maps360Url(v);
+    if (url === "") delete p.maps360;
+    else if (url) p.maps360 = url;
+  });
+  $("ed-maps").addEventListener("blur", () => {
+    const v = $("ed-maps").value.trim();
+    if (v && !App.maps360Url(v)) note("Ese enlace no es de Google Maps. Comparte la foto 360 y pega esa dirección.");
+  });
 
   // ---------- Refrescos ----------
   function commit() { save(); redrawLight(); }
@@ -284,6 +297,8 @@
   function deselect() { selId = null; refresh(); }
 
   function remove(id) {
+    const target = place(id);
+    if (routeMode && (!target || target.kind !== "route")) { note("En este modo solo se borran rutas."); return; }
     const i = PLACES.findIndex((p) => p.id === id);
     if (i < 0) return;
     snapshot();
@@ -293,7 +308,9 @@
   }
 
   // ---------- Herramientas ----------
+  const ROUTE_TOOLS = { select: 1, route: 1, delete: 1 };
   function setTool(t) {
+    if (routeMode && !ROUTE_TOOLS[t]) { note("En este modo solo se modifican las rutas."); return; }
     if (t !== tool) cancelDraft();
     if (t === "calib" && tool !== "calib") { if (selId) deselect(); openCalib(); }
     tool = t;
@@ -305,6 +322,10 @@
   }
 
   function updateHint() {
+    if (routeMode) {
+      $("ed-hint").textContent = "Modo rutas: solo se trazan y mueven las líneas. El resto del croquis queda fijo. " + TOOL_HINTS[tool];
+      return;
+    }
     const f = FLOORS.find((x) => x.id === App.getFloor());
     const drawing = tool === "poly" || tool === "pin" || tool === "wall" || tool === "door" || tool === "stair" || tool === "route" || tool === "zone";
     const stairFloor = tool === "stair" && f.id === "ext";
@@ -474,6 +495,8 @@
   }
 
   App.hooks.onShapeClick = (id) => {
+    const p = place(id);
+    if (routeMode && (!p || p.kind !== "route")) return;
     if (tool === "select") select(id);
     else if (tool === "delete") remove(id);
   };
@@ -562,6 +585,7 @@
   }
   function rotateBy(p, deg) {
     if (!p) return;
+    if (routeMode && p.kind !== "route") return;
     if (p.kind === "pin" || p.kind === "stair" || !p.points) { note("Este objeto no se gira."); return; }
     snapshot();
     const c = centerOf(p);
@@ -577,6 +601,7 @@
   function moveSelectionTo(pt) {
     const p = selId && place(selId);
     if (!p) return;
+    if (routeMode && p.kind !== "route") return;
     if (p.kind === "stair") {
       const fl = App.getFloor();
       if (!p.spans || !p.spans[fl]) { note("Esta escalera no está en la planta actual."); return; }
@@ -593,11 +618,13 @@
   function copySel() {
     const p = selId && place(selId);
     if (!p) { note("Selecciona un objeto para copiarlo."); return; }
+    if (routeMode && p.kind !== "route") { note("En este modo solo se copian rutas."); return; }
     clipboard = JSON.parse(JSON.stringify(p));
     note("Copiado. Ctrl+V lo pega.");
   }
   function pasteSel() {
     if (!clipboard) { note("No hay nada copiado."); return; }
+    if (routeMode && clipboard.kind !== "route") { note("En este modo solo se pegan rutas."); return; }
     snapshot();
     const p = JSON.parse(JSON.stringify(clipboard));
     p.id = newId();
@@ -615,6 +642,8 @@
   svg.addEventListener("pointerdown", (e) => {
     if (!App.editing || e.button > 0) return;
     const under = e.target.closest(".building");
+    const underPlace = under && place(under.dataset.id);
+    if (routeMode && underPlace && underPlace.kind !== "route") return;
     if (e.altKey && under) {
       e.stopPropagation(); e.preventDefault();
       swallowClick = true;
@@ -708,6 +737,11 @@
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c" && !typing) { e.preventDefault(); copySel(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v" && !typing) { e.preventDefault(); pasteSel(); return; }
     if (typing) { if (e.key === "Escape") e.target.blur(); return; }
+    if (routeMode && !e.ctrlKey && !e.metaKey) {
+      const only = { v: "select", V: "select", r: "route", R: "route", d: "delete", D: "delete" };
+      if (only[e.key]) { setTool(only[e.key]); return; }
+      if ("bBpPmMuUeEzZgG".includes(e.key)) { note("En este modo solo se modifican las rutas."); return; }
+    }
     switch (e.key) {
       case "Escape": if (draft) cancelDraft(); else if (selId) deselect(); break;
       case "Enter": if (draft) { if (tool === "wall" || tool === "route") finishOpen(); else if (tool === "zone") finishZone(); else finishDraft(); } break;
@@ -720,7 +754,10 @@
       case "u": case "U": setTool("door"); break;
       case "e": case "E": setTool("stair"); break;
       case "z": case "Z": setTool("zone"); break;
-      case "r": case "R": setTool("route"); break;
+      case "r": case "R":
+        if (routeMode) setTool("route");
+        else note("Pulsa «Modificar rutas» para trazar o cambiar las líneas.");
+        break;
       case "d": case "D": setTool("delete"); break;
       case "g": case "G": setTool("calib"); break;
     }
@@ -1047,13 +1084,48 @@
   };
 
   // ---------- Entrar / salir del modo editor ----------
+  const phoneScreen = () => window.matchMedia("(max-width: 800px)").matches;
+  function syncRouteButton() {
+    const btn = $("ed-routes");
+    btn.classList.toggle("active", routeMode);
+    btn.setAttribute("aria-pressed", String(routeMode));
+    btn.textContent = routeMode ? "← Editor general" : "↝ Modificar rutas";
+  }
+  function leaveRouteMode() {
+    if (!routeMode) return;
+    routeMode = false;
+    App.routeMode = false;
+    document.body.classList.remove("route-mode");
+    syncRouteButton();
+  }
+  function setRouteMode(on) {
+    if (on && !App.editing) return;
+    if (!!on === routeMode) return;
+    routeMode = !!on;
+    App.routeMode = routeMode;
+    document.body.classList.toggle("route-mode", routeMode);
+    syncRouteButton();
+    cancelDraft();
+    const picked = selId && place(selId);
+    if (selId && (!routeMode || !picked || picked.kind !== "route")) selId = null;
+    const next = routeMode || tool === "route" || tool === "delete" ? "select" : tool;
+    setTool(next);
+    App.redraw();
+    renderHandles();
+    fillPanel();
+    note(routeMode
+      ? "Solo se ven y se editan las líneas de ruta. El resto del mapa queda fijo."
+      : "Volviste al editor general. Las líneas de ruta quedan ocultas.");
+  }
   function setEditing(on) {
+    if (on && phoneScreen()) return;
     App.editing = on;
     document.body.classList.toggle("editing", on);
     $("editor-bar").hidden = !on;
     $("editor-toggle").textContent = on ? "✓ Salir del editor" : "✎ Modo editor";
     if (on) {
       if (App.stopHeading) App.stopHeading();
+      if (App.cancelSimPick) App.cancelSimPick();
       App.hideInfo();
       undoStack.length = 0; redoStack.length = 0; updateUndo();
       setTool("select");
@@ -1061,6 +1133,7 @@
     } else {
       cancelDraft();
       selId = null;
+      leaveRouteMode();
       svg.dataset.tool = "";
       showCalib(false);
       App.redraw();
@@ -1069,7 +1142,11 @@
     renderHandles();
     fillPanel();
   }
-  $("editor-toggle").onclick = () => setEditing(!App.editing);
+  $("editor-toggle").onclick = () => { if (!phoneScreen()) setEditing(!App.editing); };
+  $("ed-routes").onclick = () => setRouteMode(!routeMode);;
+  window.matchMedia("(max-width: 800px)").addEventListener("change", (ev) => {
+    if (ev.matches && App.editing) setEditing(false);
+  });
 
   applyBg();
   updateUndo();

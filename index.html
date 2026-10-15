@@ -64,6 +64,12 @@
 
       <div class="map-controls">
         <button id="locate-btn" class="locate" aria-label="Mostrar mi ubicación" title="Mi ubicación">◎</button>
+        <button id="sim-btn" class="sim-loc" type="button" aria-pressed="false" aria-label="Simular mi ubicación" title="Simular mi ubicación para probar rutas">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="2.4" fill="currentColor" />
+            <path d="M12 2.4v4.2M12 17.4v4.2M2.4 12h4.2M17.4 12h4.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+          </svg>
+        </button>
         <button id="heading-btn" class="heading" type="button" aria-pressed="false" aria-label="Girar el mapa con la brújula" title="Girar con la brújula">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 2.2 15.1 12 12 10.2 8.9 12Z" fill="currentColor" />
@@ -84,6 +90,7 @@
       <!-- Editor de figuras (solo visible en modo editor) -->
       <div id="editor-bar" class="editor-bar" hidden>
         <div class="tools" role="toolbar" aria-label="Herramientas de dibujo">
+          <button type="button" id="ed-routes" class="route-mode-toggle" aria-pressed="false" title="Abrir el editor de líneas de ruta. Ahí solo se modifican las rutas.">↝ Modificar rutas</button>
           <button type="button" class="tool active" data-tool="select" title="Seleccionar y mover (V)">⬚
             Seleccionar</button>
           <button type="button" class="tool" data-tool="poly" title="Dibujar figura / edificio (B)">▱ Figura</button>
@@ -130,6 +137,7 @@
         <label>Descripción<textarea id="ed-desc" rows="3" maxlength="300"></textarea></label>
         <label>Horario<input id="ed-hours" type="text" maxlength="60" /></label>
         <label>Contiene<input id="ed-includes" type="text" maxlength="120" /></label>
+        <label>Vista 360<input id="ed-maps" type="url" maxlength="2000" placeholder="https://maps.app.goo.gl/…" /><span class="field-hint">Pega el enlace de compartir de la foto 360. En la ficha sale «Ver en 360».</span></label>
         <div id="ed-door" class="ed-extra" hidden>
           <p id="ed-door-status"></p>
           <button type="button" id="ed-door-clear">Quitar puerta</button>
@@ -165,6 +173,7 @@
         <button id="info-close" class="info-close" aria-label="Cerrar">×</button>
         <span id="info-tag" class="tag"></span>
         <h2 id="info-name"></h2>
+        <button type="button" id="info-more" class="info-more" aria-expanded="false">Ver detalles</button>
         <img id="info-photo" class="info-photo" alt="" hidden />
         <p id="info-desc"></p>
         <dl>
@@ -181,6 +190,7 @@
             <dd id="info-includes"></dd>
           </div>
         </dl>
+        <a id="info-360" class="maps-360" target="_blank" rel="noopener noreferrer" hidden>Ver en 360 · Google Maps</a>
         <button id="route-btn" class="primary">Cómo llegar</button>
         <div id="route-ask" class="route-ask" hidden>
           <p id="route-ask-title" class="route-ask-title">¿En qué planta te encuentras?</p>
@@ -196,9 +206,18 @@
         <button type="button" id="route-back" class="route-cancel" hidden>Elegir otra planta</button>
       </article>
 
-      <button id="list-toggle" class="list-toggle" aria-expanded="false" aria-controls="sidebar">☰ Lugares</button>
+      <button id="list-toggle" class="list-toggle" aria-expanded="false" aria-controls="sidebar"><i class="sheet-grip" aria-hidden="true"></i>Lugares</button>
     </section>
   </main>
+
+  <div id="maps-leave" class="leave-dialog" hidden>
+    <div class="leave-card" role="dialog" aria-modal="true" aria-labelledby="maps-leave-title">
+      <h2 id="maps-leave-title">Vas a salir de este sitio</h2>
+      <p>Se abrirá Google Maps en otra pestaña, con la vista 360 de este lugar.</p>
+      <button type="button" id="maps-leave-go" class="primary">Abrir Google Maps</button>
+      <button type="button" id="maps-leave-cancel" class="leave-cancel">Cancelar</button>
+    </div>
+  </div>
 
   <script src="data.js"></script>
   <script src="app.js"></script>
