@@ -71,8 +71,26 @@
     }
   }
 
+  function slimPlace(p) {
+    if (p && typeof p.photo === "string" && p.photo.startsWith("data:")) {
+      const copy = Object.assign({}, p);
+      copy.photo = true;
+      return copy;
+    }
+    return p;
+  }
+  App.slimPlaces = (list) => list.map(slimPlace);
+
+  // La imagen no viene en el mapa. photo: true significa que hay un archivo aparte.
+  App.photoSrc = (p) => {
+    if (!p || !p.photo) return "";
+    if (p.photo === true) return "/api/foto/" + encodeURIComponent(p.id) + (p.photoRev ? "?v=" + p.photoRev : "");
+    if (typeof p.photo === "string" && (p.photo.startsWith("data:") || p.photo.startsWith("/api/foto/"))) return p.photo;
+    return "";
+  };
+
   function writeLocalCache(list) {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(list)); } catch (err) { /* cuota */ }
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(App.slimPlaces(list))); } catch (err) { /* cuota */ }
   }
 
   function applyPlaces(list, persistLocal) {
@@ -407,7 +425,7 @@
       const asBuilding = !here && floor !== "ext" && isOutdoorBuilding(p);
       if (!here && !asBuilding) return;
       const g = buildingEls[p.id];
-      const visible = p.kind === "wall" || p.kind === "route" || p.kind === "zone" || activeCat === "all" || p.cat === activeCat;
+      const visible = p.kind === "wall" || p.kind === "route" || p.kind === "zone" || activeCat === "all" || p.cat === activeCat || (App.photoOnly && p.cat === "aula");
       if (g) {
         g.classList.toggle("dim", !visible);
         g.classList.toggle("active", selected === p.id);
@@ -512,6 +530,19 @@
     return isOutdoorBuilding(p) ? "Campus" : "";
   }
 
+  function detailsAreOpen() {
+    const more = $("info-more");
+    if (!more || getComputedStyle(more).display === "none") return true;
+    return $("info-card").classList.contains("expanded");
+  }
+  function showPlacePhoto(p) {
+    const photo = $("info-photo");
+    const src = detailsAreOpen() ? App.photoSrc(p) : "";
+    if (!src) { photo.hidden = true; photo.removeAttribute("src"); return; }
+    photo.alt = "Foto de " + (p && p.name || "lugar");
+    if (photo.getAttribute("src") !== src) photo.src = src;
+    photo.hidden = false;
+  }
   function collapseInfoSheet() {
     const card = $("info-card");
     const more = $("info-more");
@@ -525,6 +556,8 @@
     const open = card.classList.toggle("expanded");
     $("info-more").textContent = open ? "Ocultar detalles" : "Ver detalles";
     $("info-more").setAttribute("aria-expanded", String(open));
+    const p = selected && PLACES.find((x) => x.id === selected);
+    if (p) showPlacePhoto(p);
   };
 
   function maps360Url(raw) {
@@ -547,6 +580,15 @@
     collapseInfoSheet();
     const p = PLACES.find((x) => x.id === id);
     if (!p || p.kind === "wall" || p.kind === "route" || p.kind === "zone") return;
+    if (App.photoOnly) {
+      if (p.cat !== "aula") {
+        showToast("En el celular solo puedes cargar fotos de las aulas.");
+        return;
+      }
+      if (!onFloor(p, floor)) setFloor(floorOf(p));
+      if (App.hooks.onShapeClick) App.hooks.onShapeClick(p.id);
+      return;
+    }
     activeRoute = null;
     // En planta 1 o 2 el edificio se queda en esa vista: desde ahí se pide la ruta a su entrada.
     const stayForRoute = isOutdoorBuilding(p) && (floor === "p1" || floor === "p2");
@@ -559,9 +601,7 @@
     $("info-tag").style.background = cat.color;
     $("info-name").textContent = p.name;
     $("info-desc").textContent = p.desc;
-    const photo = $("info-photo");
-    if (p.photo) { photo.src = p.photo; photo.alt = "Foto de " + p.name; photo.hidden = false; }
-    else { photo.hidden = true; photo.removeAttribute("src"); }
+    showPlacePhoto(p);
     $("info-hours").textContent = p.hours;
     $("info-includes").textContent = p.includes;
     const view360 = $("info-360");
@@ -1838,19 +1878,19 @@
     n.classList.toggle("bad", mode === "local");
   }
 
+  const localHost = (h) => h === "localhost" || h === "127.0.0.1";
+
   function apiCandidates() {
     const urls = [];
     const add = (u) => { if (u && !urls.includes(u)) urls.push(u); };
-    try {
-      const prev = sessionStorage.getItem("mapa-api");
-      if (prev) add(prev);
-    } catch (err) { /* nada */ }
+    // Por el dominio solo vale la misma dirección. Probar :8000 o 127.0.0.1
+    // hace que la PC guarde cambios en local y el celular se quede con el HTML.
     if (location.protocol !== "file:") add(new URL("/api/map", location.href).href);
-    const hosts = ["127.0.0.1", "localhost"];
-    if (location.hostname && !hosts.includes(location.hostname)) hosts.unshift(location.hostname);
-    hosts.forEach((h) => {
-      [8000, 8080].forEach((p) => add(`http://${h}:${p}/api/map`));
-    });
+    if (location.protocol === "file:" || localHost(location.hostname)) {
+      ["127.0.0.1", "localhost"].forEach((h) => {
+        [8000, 8080].forEach((p) => add(`http://${h}:${p}/api/map`));
+      });
+    }
     return urls;
   }
 
@@ -1861,12 +1901,17 @@
   }
 
   async function probeApi(url) {
+    // Solo confirma que el servidor responde. El mapa, con fotos, pesa más de 1 MB
+    // y no cabe en una espera corta; la descarga completa ocurre después.
     const res = await fetch(url, { cache: "no-store" });
-    let data = null;
-    try { data = await res.json(); } catch (err) { return false; }
-    if (res.status === 404 && data && data.error === "sin datos guardados") return true;
-    if (res.ok && parseApiBody(data)) return true;
-    return false;
+    if (res.status === 404) {
+      let data = null;
+      try { data = await res.json(); } catch (err) { return false; }
+      return !!(data && data.error === "sin datos guardados");
+    }
+    const json = res.ok && (res.headers.get("content-type") || "").includes("json");
+    try { if (res.body) await res.body.cancel(); } catch (err) { /* nada */ }
+    return json;
   }
 
   async function findApi() {
@@ -1875,11 +1920,10 @@
       try {
         const ok = await Promise.race([
           probeApi(url),
-          new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 1800))
+          new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 12000))
         ]);
         if (ok) {
           App.apiUrl = url;
-          try { sessionStorage.setItem("mapa-api", url); } catch (err) { /* nada */ }
           return url;
         }
       } catch (err) { /* siguiente candidato */ }
@@ -1919,8 +1963,12 @@
         setSyncStatus("local", "Solo este dispositivo");
         return false;
       }
+      list.forEach((p) => {
+        if (p && typeof p.photo === "string" && p.photo.startsWith("data:")) p.photo = true;
+      });
       setSyncStatus("server", "Mapa compartido");
       writeLocalCache(list);
+      if (App.hooks.onPhotosStored) App.hooks.onPhotosStored();
       return true;
     } catch (err) {
       setSyncStatus("local", "Solo este dispositivo");
@@ -2019,6 +2067,10 @@
       if (JSON.stringify(result.places) === JSON.stringify(PLACES)) return;
       applyPlaces(result.places, true);
       paintMap();
+      if (selected) {
+        const current = PLACES.find((p) => p.id === selected);
+        if (current) showPlacePhoto(current);
+      }
       showToast("Mapa actualizado", 2000);
     } catch (err) { /* sin servidor: se conserva lo actual */ }
   }

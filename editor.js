@@ -69,6 +69,9 @@
   const newId = () => "custom-" + Date.now().toString(36) + Math.floor(Math.random() * 1000).toString(36);
   const isLine = (kind) => kind === "wall" || kind === "route";
   const isClosed = (kind) => kind === "poly" || kind === "zone";
+  const phoneScreen = () => window.matchMedia("(max-width: 800px)").matches;
+  const photoOnly = () => !!(App.editing && phoneScreen());
+  const isAula = (p) => !!(p && p.cat === "aula");
 
   function wrapLabel(name, max = 16) {
     const lines = [];
@@ -114,8 +117,10 @@
   // ---------- Guardado y deshacer ----------
   let saveTimer;
   function save() {
-    try { localStorage.setItem(App.STORE_KEY, JSON.stringify(PLACES)); }
-    catch (err) { flash("No se pudo guardar"); return; }
+    try {
+      const slim = App.slimPlaces ? App.slimPlaces(PLACES) : PLACES;
+      localStorage.setItem(App.STORE_KEY, JSON.stringify(slim));
+    } catch (err) { /* sin espacio: la publicación sigue */ }
     clearTimeout(saveTimer);
     saveTimer = setTimeout(async () => {
       const ok = App.pushMap ? await App.pushMap(PLACES) : false;
@@ -138,12 +143,14 @@
     save(); refresh(); updateUndo();
   }
   function undo() {
+    if (photoOnly()) return;
     const s = undoStack.pop();
     if (!s) return;
     redoStack.push(JSON.stringify(PLACES));
     restore(s);
   }
   function redo() {
+    if (photoOnly()) return;
     const s = redoStack.pop();
     if (!s) return;
     undoStack.push(JSON.stringify(PLACES));
@@ -154,6 +161,7 @@
   // ---------- Dibujo de asas y borrador ----------
   function renderHandles() {
     editLayer.innerHTML = "";
+    if (photoOnly()) return;
     const p = App.editing && selId && place(selId);
     if (!p) return;
     const kk = k();
@@ -207,8 +215,36 @@
 
   const showField = (id, on) => { const label = $(id).closest("label"); if (label) label.hidden = !on; };
 
+  function setPhotoPreview(p) {
+    const preview = $("ed-photo-preview");
+    const src = App.photoSrc ? App.photoSrc(p) : "";
+    if (src) { preview.src = src; preview.hidden = false; }
+    else { preview.hidden = true; preview.removeAttribute("src"); }
+    $("ed-photo-clear").hidden = !src;
+  }
+  App.hooks.onPhotosStored = () => { if (App.editing && selId) setPhotoPreview(place(selId)); };
+
+  function fillPhotoPanel(p) {
+    const photoIntro = $("ed-photo").querySelector("p");
+    if (!isAula(p)) { $("editor-panel").hidden = true; return; }
+    $("editor-panel").hidden = false;
+    $("ed-kind").textContent = p.name;
+    ["ed-name", "ed-cat", "ed-floor", "ed-desc", "ed-hours", "ed-includes", "ed-maps"].forEach((id) => showField(id, false));
+    $("ed-door").hidden = true;
+    $("ed-stair").hidden = true;
+    $("ed-delete").hidden = true;
+    $("ed-photo").hidden = false;
+    if (photoIntro) photoIntro.textContent = "Esta foto se publica en la ficha del aula.";
+    setPhotoPreview(p);
+  }
+
   function fillPanel() {
     const p = selId && place(selId);
+    if (photoOnly()) { fillPhotoPanel(p); return; }
+    $("ed-delete").hidden = false;
+    showField("ed-name", true);
+    const photoIntro = $("ed-photo").querySelector("p");
+    if (photoIntro) photoIntro.textContent = "Foto del lugar. Quien consulte el sitio la ve antes de ir.";
     if (routeMode && p && p.kind !== "route") { $("editor-panel").hidden = true; return; }
     $("editor-panel").hidden = !(App.editing && p);
     if (!p) return;
@@ -249,12 +285,7 @@
     }
     const photoBox = $("ed-photo");
     photoBox.hidden = quiet;
-    if (!quiet) {
-      const preview = $("ed-photo-preview");
-      if (p.photo) { preview.src = p.photo; preview.hidden = false; }
-      else { preview.hidden = true; preview.removeAttribute("src"); }
-      $("ed-photo-clear").hidden = !p.photo;
-    }
+    if (!quiet) setPhotoPreview(p);
   }
 
   // Cada campo toma una captura (para deshacer) en su primer cambio tras enfocarlo
@@ -263,6 +294,7 @@
     let armed = false;
     input.addEventListener("focus", () => { armed = true; });
     input.addEventListener("input", () => {
+      if (photoOnly()) return;
       const p = selId && place(selId);
       if (!p) return;
       if (armed) { snapshot(); armed = false; }
@@ -297,6 +329,7 @@
   function deselect() { selId = null; refresh(); }
 
   function remove(id) {
+    if (photoOnly()) return;
     const target = place(id);
     if (routeMode && (!target || target.kind !== "route")) { note("En este modo solo se borran rutas."); return; }
     const i = PLACES.findIndex((p) => p.id === id);
@@ -310,6 +343,7 @@
   // ---------- Herramientas ----------
   const ROUTE_TOOLS = { select: 1, route: 1, delete: 1 };
   function setTool(t) {
+    if (photoOnly() && t !== "select") return;
     if (routeMode && !ROUTE_TOOLS[t]) { note("En este modo solo se modifican las rutas."); return; }
     if (t !== tool) cancelDraft();
     if (t === "calib" && tool !== "calib") { if (selId) deselect(); openCalib(); }
@@ -322,6 +356,10 @@
   }
 
   function updateHint() {
+    if (photoOnly()) {
+      $("ed-hint").textContent = "Toca un aula para cargarle una foto. El resto del mapa no se puede cambiar.";
+      return;
+    }
     if (routeMode) {
       $("ed-hint").textContent = "Modo rutas: solo se trazan y mueven las líneas. El resto del croquis queda fijo. " + TOOL_HINTS[tool];
       return;
@@ -496,6 +534,11 @@
 
   App.hooks.onShapeClick = (id) => {
     const p = place(id);
+    if (photoOnly()) {
+      if (!isAula(p)) { note("En el celular solo puedes cargar fotos de las aulas."); return; }
+      select(id);
+      return;
+    }
     if (routeMode && (!p || p.kind !== "route")) return;
     if (tool === "select") select(id);
     else if (tool === "delete") remove(id);
@@ -506,6 +549,7 @@
   function setWall(p, pts) { p.points = ptsStr(pts); redrawLight(); }
 
   function beginDrag(e, kind, idx, alreadySnapped) {
+    if (photoOnly()) return;
     const p = selId && place(selId);
     if (!p) return;
     const start = toMap(e);
@@ -641,6 +685,14 @@
   // Captura el puntero antes que el pan del mapa
   svg.addEventListener("pointerdown", (e) => {
     if (!App.editing || e.button > 0) return;
+    if (photoOnly()) {
+      const picked = e.target.closest(".building");
+      const aula = picked && place(picked.dataset.id);
+      if (!aula || !isAula(aula)) return;
+      e.stopPropagation();
+      if (selId !== aula.id) select(aula.id);
+      return;
+    }
     const under = e.target.closest(".building");
     const underPlace = under && place(under.dataset.id);
     if (routeMode && underPlace && underPlace.kind !== "route") return;
@@ -695,6 +747,10 @@
   svg.addEventListener("click", (e) => {
     if (swallowClick) { swallowClick = false; e.stopPropagation(); return; }
     if (!App.editing || e._dragged) return;
+    if (photoOnly()) {
+      if (!e.target.closest(".building, [data-h]") && selId) deselect();
+      return;
+    }
     if (tool === "poly" || tool === "wall" || tool === "route" || tool === "zone") { e.stopPropagation(); addDraftPoint(toMap(e)); }
     else if (tool === "pin") { e.stopPropagation(); createPin(toMap(e)); }
     else if (tool === "door") { e.stopPropagation(); placeDoor(toMap(e)); }
@@ -703,7 +759,7 @@
   }, true);
 
   svg.addEventListener("dblclick", (e) => {
-    if (!App.editing) return;
+    if (!App.editing || photoOnly()) return;
     if ((tool === "poly" || tool === "wall" || tool === "route" || tool === "zone") && draft) {
       e.stopPropagation();
       if (tool === "wall" || tool === "route") finishOpen();
@@ -732,6 +788,10 @@
   document.addEventListener("keydown", (e) => {
     if (!App.editing) return;
     const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
+    if (photoOnly()) {
+      if (e.key === "Escape" && !typing && selId) deselect();
+      return;
+    }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !typing) { e.preventDefault(); undo(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y" && !typing) { e.preventDefault(); redo(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c" && !typing) { e.preventDefault(); copySel(); return; }
@@ -804,7 +864,8 @@
     const file = e.target.files[0];
     e.target.value = "";
     const p = selId && place(selId);
-    if (!file || !p || isLine(p.kind)) return;
+    if (!file || !p || isLine(p.kind) || p.kind === "zone") return;
+    if (photoOnly() && !isAula(p)) return;
     const reader = new FileReader();
     reader.onload = () => {
       const img = new Image();
@@ -822,6 +883,7 @@
   $("ed-photo-clear").onclick = () => {
     const p = selId && place(selId);
     if (!p || !p.photo) return;
+    if (photoOnly() && !isAula(p)) return;
     snapshot();
     delete p.photo;
     save(); fillPanel();
@@ -1084,7 +1146,6 @@
   };
 
   // ---------- Entrar / salir del modo editor ----------
-  const phoneScreen = () => window.matchMedia("(max-width: 800px)").matches;
   function syncRouteButton() {
     const btn = $("ed-routes");
     btn.classList.toggle("active", routeMode);
@@ -1099,6 +1160,7 @@
     syncRouteButton();
   }
   function setRouteMode(on) {
+    if (phoneScreen()) return;
     if (on && !App.editing) return;
     if (!!on === routeMode) return;
     routeMode = !!on;
@@ -1117,36 +1179,69 @@
       ? "Solo se ven y se editan las líneas de ruta. El resto del mapa queda fijo."
       : "Volviste al editor general. Las líneas de ruta quedan ocultas.");
   }
-  function setEditing(on) {
-    if (on && phoneScreen()) return;
-    App.editing = on;
-    document.body.classList.toggle("editing", on);
-    $("editor-bar").hidden = !on;
-    $("editor-toggle").textContent = on ? "✓ Salir del editor" : "✎ Modo editor";
-    if (on) {
-      if (App.stopHeading) App.stopHeading();
-      if (App.cancelSimPick) App.cancelSimPick();
-      App.hideInfo();
-      undoStack.length = 0; redoStack.length = 0; updateUndo();
-      setTool("select");
-      App.redraw();
+  function restrictToPhotos() {
+    leaveRouteMode();
+    cancelDraft();
+    showCalib(false);
+    if (tool !== "select") setTool("select");
+    const picked = selId && place(selId);
+    if (picked && !isAula(picked)) selId = null;
+  }
+  function syncEditorChrome() {
+    const photos = photoOnly();
+    App.photoOnly = photos;
+    document.body.classList.toggle("photo-mode", photos);
+    $("editor-bar").hidden = !App.editing;
+    const btn = $("editor-toggle");
+    if (phoneScreen()) {
+      btn.textContent = App.editing ? "✕" : "✎";
+      btn.title = App.editing ? "Salir" : "Cargar fotos de las aulas";
+      btn.setAttribute("aria-label", btn.title);
     } else {
+      btn.textContent = App.editing ? "✓ Salir del editor" : "✎ Modo editor";
+      btn.title = "Modo editor";
+      btn.setAttribute("aria-label", btn.textContent);
+    }
+    bgImg.style.display = App.editing && !photos && bgImg.getAttribute("href") ? "" : "none";
+  }
+  function setEditing(on) {
+    if (!on) {
       cancelDraft();
       selId = null;
       leaveRouteMode();
       svg.dataset.tool = "";
       showCalib(false);
-      App.redraw();
+    } else if (phoneScreen()) {
+      restrictToPhotos();
     }
-    bgImg.style.display = on && bgImg.getAttribute("href") ? "" : "none";
+    App.editing = !!on;
+    document.body.classList.toggle("editing", !!on);
+    if (on) {
+      if (App.stopHeading) App.stopHeading();
+      if (App.cancelSimPick) App.cancelSimPick();
+      App.hideInfo();
+      $("sidebar").classList.remove("open");
+      $("list-toggle").setAttribute("aria-expanded", "false");
+      undoStack.length = 0; redoStack.length = 0; updateUndo();
+      setTool("select");
+    }
+    App.redraw();
+    syncEditorChrome();
     renderHandles();
     fillPanel();
+    if (on) updateHint();
   }
-  $("editor-toggle").onclick = () => { if (!phoneScreen()) setEditing(!App.editing); };
-  $("ed-routes").onclick = () => setRouteMode(!routeMode);;
-  window.matchMedia("(max-width: 800px)").addEventListener("change", (ev) => {
-    if (ev.matches && App.editing) setEditing(false);
+  $("editor-toggle").onclick = () => setEditing(!App.editing);
+  $("ed-routes").onclick = () => setRouteMode(!routeMode);
+  window.matchMedia("(max-width: 800px)").addEventListener("change", () => {
+    if (App.editing && phoneScreen()) restrictToPhotos();
+    syncEditorChrome();
+    if (!App.editing) return;
+    renderHandles();
+    fillPanel();
+    updateHint();
   });
+  syncEditorChrome();
 
   applyBg();
   updateUndo();

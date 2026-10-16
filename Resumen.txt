@@ -1,5 +1,5 @@
 RESUMEN DEL PROYECTO - MAPA INTERACTIVO DE LA FACULTAD (FCAV - UAT)
-Actualizado: 13 de octubre de 2026
+Actualizado: 15 de octubre de 2026
 
 
 El proyecto es un mapa web interactivo de la FCAV con tres capas (vista aérea,
@@ -136,9 +136,10 @@ Con la herramienta Seleccionar:
 
 3.6 Fotos de los lugares
 ------------------------
-En el editor, "Cargar foto" guarda una imagen reducida del lugar.
-Quien consulte el mapa la ve en la ficha, antes de ir. "Quitar foto" la
-borra. El servidor acepta mapas de hasta 8 MB para que quepan las fotos.
+En el editor, "Cargar foto" guarda una imagen reducida del lugar, aparte
+del mapa. El mapa solo anota que la foto existe. Quien consulte el sitio
+la descarga al abrir los detalles de ese lugar, no con el resto del croquis.
+"Quitar foto" la borra. El servidor acepta mapas de hasta 8 MB.
 Si se cambia ese límite hay que reiniciar server.py.
 
 3.7 Icono y pantalla de entrada
@@ -211,7 +212,9 @@ En pantallas de hasta 800 px el mapa ocupa toda la pantalla.
   - La ficha abre corta: nombre y «Cómo llegar». «Ver detalles» muestra
     foto, horario y descripción.
   - Los controles de zoom y ubicación van en una fila, encima de esa barra.
-  - El modo editor no está en el celular: no hay botón y no se puede entrar.
+  - En el celular hay un botón de lápiz. Abre un editor reducido: solo se
+    puede tocar un aula y cargarle o quitarle la foto. No se dibuja, no se
+    mueve y no se borra nada. En la computadora el editor sigue completo.
 
 3.12 Editor de rutas
 --------------------
